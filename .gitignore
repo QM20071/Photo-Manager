@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# 虚拟环境
+pack_env/
+venv/
+env/
+
+# 编辑器
+.vscode/
+.idea/
+
+# 构建产物
+dist_nuitka/
+build/
+*.spec
+
+# 配置（含本地路径）
+config.json
+
+# 图库数据
+data/
+cache/
+
+# 系统
+Thumbs.db
+Desktop.ini
+.DS_Store
