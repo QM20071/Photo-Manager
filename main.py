@@ -851,9 +851,8 @@ class MainWindow(QMainWindow):
     def show_about(self):
         QMessageBox.information(
             self, "关于",
-            "图片管理器  v1.0\n\n"
+            "图片管理器  v0.1.0\n\n"
             "作者：QM20071\n"
-            "联系方式：QQ 2434509500\n\n"
             "一个简洁、离线、Windows 上运行的个人图片管理器。"
         )
 
@@ -1885,6 +1884,12 @@ class MainWindow(QMainWindow):
 
         try:
             self.refresh_current_tab()
+        except Exception:
+            pass
+
+        try:
+            self.refresh_sidebar_counts()
+            self.sidebar_left.reload_albums()
         except Exception:
             pass
 
