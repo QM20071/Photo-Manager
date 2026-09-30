@@ -320,7 +320,6 @@ class MainWindow(QMainWindow):
         menu_more = QMenu(btn_more)
         menu_more.addAction("导入历史", self.open_import_history)
         menu_more.addSeparator()
-        menu_more.addAction("关于", self.show_about)
         menu_more.addAction("快捷键", self.show_shortcuts)
         btn_more.clicked.connect(
             lambda: menu_more.exec(
@@ -379,6 +378,11 @@ class MainWindow(QMainWindow):
         self.theme_button.setFixedSize(32, 28)
         self.theme_button.clicked.connect(self.toggle_theme)
         toolbar.addWidget(self.theme_button)
+        # GitHub 按钮
+        btn_github = _icon_btn(
+            "github", "打开 GitHub 仓库", self._open_github
+        )
+        toolbar.addWidget(btn_github)
 
         # ---------- 中央网格 ----------
         self.grid = DraggableGrid()
@@ -833,6 +837,10 @@ class MainWindow(QMainWindow):
             icon("sun" if new_theme == "light" else "moon")
         )
 
+    def _open_github(self):
+        import webbrowser
+        webbrowser.open("https://github.com/QM20071/Photo-Manager")
+
     # ---------- 右键选中捕获 ----------
 
     def on_grid_item_pressed(self, index):
@@ -847,14 +855,6 @@ class MainWindow(QMainWindow):
             self._saved_selection = [index]
 
     # ---------- 菜单项 ----------
-
-    def show_about(self):
-        QMessageBox.information(
-            self, "关于",
-            "图片管理器  v0.1.0\n\n"
-            "作者：QM20071\n"
-            "一个简洁、离线、Windows 上运行的个人图片管理器。"
-        )
 
     def show_shortcuts(self):
         text = (
