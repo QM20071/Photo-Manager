@@ -111,8 +111,7 @@ class ThumbnailManager(QObject):
 
     def request(self, image_id, priority):
         file_path = self._model.get_file_path(image_id)
-        file_path = self._model.get_file_path(image_id)
-        if file_path is None:
+        if not file_path:
             return
 
         state_info = self._states.get(image_id)
@@ -188,7 +187,7 @@ class ThumbnailManager(QObject):
         old_token = self._request_tokens.get(image_id, 0)
         self._request_tokens[image_id] = old_token + 1
         self._states.pop(image_id, None)
-        self._memory_cache.pop(image_id, None)
+        self._memory_cache.pop(image_id)
 
     def bump_generation(self):
         self._generation += 1
@@ -241,7 +240,6 @@ class ThumbnailManager(QObject):
         self.thumbnail_ready.emit(image_id, pixmap)
 
     def _on_decode_failed(self, image_id, error, gen, token):
-        print(f"[failed] id={image_id} err={error} gen={gen} cur={self._generation}")
         if gen != self._generation:
             return
         current_token = self._request_tokens.get(image_id, 0)

@@ -95,6 +95,9 @@ SORT_MODES_ALBUM = [
 
 MIME_TYPE = "application/x-photo-image-ids"
 
+# 相册封面项 id 起始值（用于区分普通图片 id）
+ALBUM_ITEM_ID_BASE = 1000000
+
 
 class DraggableGrid(QListView):
     """支持拖动图片的网格。手动区分“拖动”和“框选”。"""
@@ -140,7 +143,7 @@ class DraggableGrid(QListView):
             return
 
         super().mouseMoveEvent(event)
-    
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         win = self.window()
@@ -168,7 +171,7 @@ class DraggableGrid(QListView):
         image_ids = []
         for idx in indexes:
             iid = idx.data(Qt.UserRole)
-            if iid is None or iid < 0:
+            if iid is None or iid >= ALBUM_ITEM_ID_BASE:
                 continue
             image_ids.append(iid)
 
@@ -188,7 +191,7 @@ class DraggableGrid(QListView):
         if hasattr(win, "thumbnail_manager"):
             for idx in indexes:
                 iid = idx.data(Qt.UserRole)
-                if iid is None or iid < 0:
+                if iid is None or iid >= ALBUM_ITEM_ID_BASE:
                     continue
                 pm = win.thumbnail_manager.get_cached(iid)
                 if pm is not None and not pm.isNull():
@@ -203,6 +206,7 @@ class DraggableGrid(QListView):
             drag.setHotSpot(small.rect().center())
 
         drag.exec(Qt.MoveAction)
+
 
 class MainWindow(QMainWindow):
 
@@ -239,7 +243,7 @@ class MainWindow(QMainWindow):
 
         def _icon_btn(name, tooltip, callback):
             btn = QPushButton(icon(name), "")
-            btn.setProperty("icon_name", name)  
+            btn.setProperty("icon_name", name)
             btn.setToolTip(tooltip)
             btn.setFixedSize(32, 28)
             btn.clicked.connect(callback)
@@ -378,6 +382,7 @@ class MainWindow(QMainWindow):
         self.theme_button.setFixedSize(32, 28)
         self.theme_button.clicked.connect(self.toggle_theme)
         toolbar.addWidget(self.theme_button)
+
         # GitHub 按钮
         btn_github = _icon_btn(
             "github", "打开 GitHub 仓库", self._open_github
@@ -594,12 +599,15 @@ class MainWindow(QMainWindow):
                 cover = files[0]
 
             album_items.append(ImageItem(
-                image_id=-(idx + 1),
+                image_id=ALBUM_ITEM_ID_BASE + idx,
                 file_path=cover or "",
                 filename=f"{name} ({count})",
                 favorite=False,
             ))
 
+        # 清掉旧封面项的缩略图缓存，避免显示旧封面
+        for item in album_items:
+            self.thumbnail_manager.invalidate(item.image_id)
         self.image_model.set_images(album_items)
         self.status_label.setText(f"共 {len(albums)} 个相册")
 
@@ -759,7 +767,7 @@ class MainWindow(QMainWindow):
         if self.image_model.count() == 0:
             return
         visible_rows = self._compute_visible_rows()
-        
+
         if not visible_rows:
             return
 
@@ -861,9 +869,12 @@ class MainWindow(QMainWindow):
             "图片管理器 - 快捷键\n\n"
             "【网格操作】\n"
             "Enter           打开查看器\n"
+            "Ctrl+A          全选\n"
+            "Ctrl+F          聚焦搜索框\n"
             "Delete          删除（移到回收站）\n"
             "F2              重命名\n"
             "F               收藏 / 取消收藏\n"
+            "空格            打开 / 关闭查看器\n"
             "R / Ctrl+Z      撤销上一步\n\n"
             "【查看器】\n"
             "← / ↑ / A / W   上一张\n"
@@ -873,8 +884,7 @@ class MainWindow(QMainWindow):
             "Q               逆时针旋转 90°\n"
             "E               顺时针旋转 90°\n"
             "F               收藏 / 取消收藏\n"
-            "空格            用系统看图打开\n"
-            "Esc             关闭查看器\n\n"
+            "空格 / Esc      关闭查看器\n\n"
             "【其它】\n"
             "F1 / ?          显示本面板\n"
         )
@@ -893,8 +903,8 @@ class MainWindow(QMainWindow):
         if len(items) == 1:
             image_id = self._row_id(items[0])
 
-            # 相册封面项（负数 image_id）
-            if image_id is not None and image_id < 0:
+            # 相册封面项
+            if image_id is not None and image_id >= ALBUM_ITEM_ID_BASE:
                 display_text = items[0].data(Qt.UserRole + 1) or ""
                 if " (" in display_text:
                     album_name = display_text.rsplit(" (", 1)[0]
@@ -938,7 +948,7 @@ class MainWindow(QMainWindow):
             total = 0
             for it in items:
                 image_id = self._row_id(it)
-                if image_id is None or image_id < 0:
+                if image_id is None or image_id >= ALBUM_ITEM_ID_BASE:
                     continue
                 row = database.get_image_by_id(image_id)
                 if row is None:
@@ -1033,6 +1043,29 @@ class MainWindow(QMainWindow):
                 ("占用空间", format_size(total)),
             ],
         )
+
+    def _refresh_album_cover_item(self, album_name, new_cover_path):
+        """
+        更新 image_model 中对应相册封面项的 file_path，
+        让缩略图管理重新请求新封面。
+        """
+        items = self.image_model.all_items()
+        changed = False
+        for i, item in enumerate(items):
+            if item.image_id >= ALBUM_ITEM_ID_BASE:
+                # 从 filename 提取相册名
+                if item.filename.startswith(f"{album_name} ("):
+                    items[i] = ImageItem(
+                        image_id=item.image_id,
+                        file_path=new_cover_path,
+                        filename=item.filename,
+                        favorite=item.favorite,
+                    )
+                    changed = True
+                    break
+        if changed:
+            self.image_model.set_images(items)
+            QTimer.singleShot(100, self._update_visible_range)
 
     # ---------- 排序 / 月份 ----------
 
@@ -1438,6 +1471,17 @@ class MainWindow(QMainWindow):
     def eventFilter(self, obj, event):
         if obj is self.grid:
             if event.type() == QEvent.KeyPress:
+                # Ctrl+A 全选
+                if (event.key() == Qt.Key_A
+                        and (event.modifiers() & Qt.ControlModifier)):
+                    self.grid.selectAll()
+                    return True
+                # Ctrl+F 聚焦搜索框
+                if (event.key() == Qt.Key_F
+                        and (event.modifiers() & Qt.ControlModifier)):
+                    self.search_edit.setFocus()
+                    self.search_edit.selectAll()
+                    return True
                 if (event.key() == Qt.Key_R
                         and not (event.modifiers() & Qt.ControlModifier)):
                     self.undo_last()
@@ -1564,7 +1608,7 @@ class MainWindow(QMainWindow):
 
             if index is not None:
                 image_id = index.data(Qt.UserRole)
-                if image_id is not None and image_id < 0:
+                if image_id is not None and image_id >= ALBUM_ITEM_ID_BASE:
                     display_text = index.data(Qt.UserRole + 1) or ""
                     if " (" in display_text:
                         album_name = display_text.rsplit(" (", 1)[0]
@@ -1662,7 +1706,7 @@ class MainWindow(QMainWindow):
         all_fav = True
         for it in items:
             image_id = self._row_id(it)
-            if image_id is None or image_id < 0:
+            if image_id is None or image_id >= ALBUM_ITEM_ID_BASE:
                 continue
             if not database.is_favorite(image_id):
                 all_fav = False
@@ -1672,7 +1716,7 @@ class MainWindow(QMainWindow):
 
         for it in items:
             image_id = self._row_id(it)
-            if image_id is None or image_id < 0:
+            if image_id is None or image_id >= ALBUM_ITEM_ID_BASE:
                 continue
             database.set_favorite(image_id, new_state)
             self.image_model.update_favorite(image_id, new_state)
@@ -1697,7 +1741,7 @@ class MainWindow(QMainWindow):
 
         index = items[0]
         image_id = self._row_id(index)
-        if image_id is None or image_id < 0:
+        if image_id is None or image_id >= ALBUM_ITEM_ID_BASE:
             return
         row = database.get_image_by_id(image_id)
         if row is None:
@@ -1761,7 +1805,7 @@ class MainWindow(QMainWindow):
         pairs = []
         for index in items:
             image_id = self._row_id(index)
-            if image_id is None or image_id < 0:
+            if image_id is None or image_id >= ALBUM_ITEM_ID_BASE:
                 continue
             row = database.get_image_by_id(image_id)
             if row is None:
@@ -2034,8 +2078,8 @@ class MainWindow(QMainWindow):
 
         image_id = index.data(Qt.UserRole)
 
-        # 相册封面项（负数 id）→ 进相册
-        if image_id is not None and image_id < 0:
+        # 相册封面项 → 进相册
+        if image_id is not None and image_id >= ALBUM_ITEM_ID_BASE:
             display_text = index.data(Qt.UserRole + 1) or ""
             if " (" in display_text:
                 album_name = display_text.rsplit(" (", 1)[0]
@@ -2051,7 +2095,7 @@ class MainWindow(QMainWindow):
         if not index.isValid():
             return
         image_id = self._row_id(index)
-        if image_id is None or image_id < 0:
+        if image_id is None or image_id >= ALBUM_ITEM_ID_BASE:
             return
         row_index = None
         for i, r in enumerate(self.displayed_paths):
@@ -2068,8 +2112,7 @@ class MainWindow(QMainWindow):
         )
         self.viewer.closed.connect(self._on_viewer_closed)
         self.viewer.show()
-        self.viewer.destroyed.connect(self._on_viewer_closed)
-    
+
     def _on_viewer_closed(self):
         self.viewer = None
 
@@ -2192,7 +2235,7 @@ class MainWindow(QMainWindow):
             return
 
         image_id = self._row_id(index)
-        if image_id is None or image_id < 0:
+        if image_id is None or image_id >= ALBUM_ITEM_ID_BASE:
             return
 
         row = database.get_image_by_id(image_id)
@@ -2205,7 +2248,7 @@ class MainWindow(QMainWindow):
         all_fav = True
         for it in saved:
             iid = self._row_id(it)
-            if iid is None or iid < 0 or not database.is_favorite(iid):
+            if iid is None or iid >= ALBUM_ITEM_ID_BASE or not database.is_favorite(iid):
                 all_fav = False
                 break
 
@@ -2215,14 +2258,40 @@ class MainWindow(QMainWindow):
         act_rename = menu.addAction("重命名")
         act_fav = menu.addAction("取消收藏" if all_fav else "收藏")
 
+        # 相册内才显示"设为封面"
+        act_set_cover = None
+        act_clear_cover = None
+        if self.current_album is not None:
+            menu.addSeparator()
+            manual_cover = database.get_album_cover_manual(
+                self.current_album
+            )
+            if (manual_cover
+                    and os.path.normpath(manual_cover) == os.path.normpath(real)):
+                act_clear_cover = menu.addAction("取消相册封面")
+            else:
+                act_set_cover = menu.addAction("设为当前相册封面")
+
         menu.addSeparator()
         act_delete = menu.addAction("删除")
 
         chosen = menu.exec(self.grid.mapToGlobal(pos))
         if chosen is None:
             return
-        
-        if chosen == act_open_sys:
+
+        if act_set_cover is not None and chosen == act_set_cover:
+            database.set_album_cover(self.current_album, real)
+            self.status_label.setText(
+                f"已设为「{self.current_album}」的封面"
+            )
+            # 刷新 image_model 里封面项的 file_path
+            self._refresh_album_cover_item(self.current_album, real)
+        elif act_clear_cover is not None and chosen == act_clear_cover:
+            database.delete_album_cover(self.current_album)
+            self.status_label.setText(
+                f"已取消「{self.current_album}」的封面"
+            )
+        elif chosen == act_open_sys:
             try:
                 os.startfile(real)
             except Exception as e:
@@ -2240,7 +2309,7 @@ class MainWindow(QMainWindow):
             new_state = not all_fav
             for it in saved:
                 iid = self._row_id(it)
-                if iid is None or iid < 0:
+                if iid is None or iid >= ALBUM_ITEM_ID_BASE:
                     continue
                 database.set_favorite(iid, new_state)
                 self.image_model.update_favorite(iid, new_state)
